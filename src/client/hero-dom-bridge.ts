@@ -19,13 +19,28 @@ function directChildContaining(parent: Element, descendant: Element): Element | 
  *  -- counting it made the row look like it held two staged presets from the
  *  moment these controls mounted. */
 function heroPresetButtons(root: ParentNode): { hero: HTMLElement; presets: HTMLButtonElement[] } | undefined {
-  const heroes = Array.from(root.querySelectorAll<HTMLElement>(HERO_SELECTOR))
+  const heroes = root instanceof HTMLElement && root.matches(HERO_SELECTOR) ? [root] : Array.from(root.querySelectorAll<HTMLElement>(HERO_SELECTOR))
   if (heroes.length !== 1) return undefined
   const hero = heroes[0]
   if (hero === undefined) return undefined
   const menuButtons = Array.from(hero.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="menu"]'))
   const presets = menuButtons.filter(button => button.getAttribute('aria-label') === null && button.closest(`[${PORTAL_ATTRIBUTE}]`) === null)
   return { hero, presets }
+}
+
+/** The conversation an instance's dock renders in. Split-pane hosts such as
+ *  dsh-multi-panel mount one conversation per pane, and a document-wide lookup
+ *  let every pane's controls claim the one hero on screen. Falls back to the
+ *  document when the dock sits outside a phased conversation root. */
+export function conversationScope(anchor: Element | null): ParentNode {
+  return anchor?.closest('[data-phase]') ?? document
+}
+
+/** Whether an event started in the hero hosting this portal, so a submission in
+ *  another pane's composer is never rerouted through this pane's branch choice. */
+export function withinPortalHero(portal: Element, target: EventTarget | null): boolean {
+  const hero = portal.closest(HERO_SELECTOR)
+  return hero !== null && target instanceof Node && hero.contains(target)
 }
 
 /** True once the hero has settled on a preset that is not Claude.

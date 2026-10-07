@@ -4,7 +4,7 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconBranchOutlineRegular, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RepositoryBranchList } from '../repository-setup.ts'
 import type { ClaudeCodeSettingsKey } from './locales.ts'
-import { ensureClaudeHeroPortal, locateClaudePresetSeat, removeClaudeHeroPortals, retainsClaudeHeroPortal, showsOtherPresetSeat } from './hero-dom-bridge.ts'
+import { conversationScope, ensureClaudeHeroPortal, locateClaudePresetSeat, removeClaudeHeroPortals, retainsClaudeHeroPortal, showsOtherPresetSeat, withinPortalHero } from './hero-dom-bridge.ts'
 import { menuNavigationIndex as branchMenuNavigationIndex } from './menu-navigation.ts'
 import { loadRepositoryBranches, refreshRepositoryBranches, type RepositoryPreparationStage } from './repository-setup-api.ts'
 import { JiraClientError, loadJiraStatus, searchJiraTickets, type JiraTicket } from './jira-api.ts'
@@ -407,6 +407,7 @@ export function ClaudeHeroRepositoryControls({
   const [ticketError, setTicketError] = useState<string>()
   const ticketPickerRef = useRef<HTMLSpanElement>(null)
   const ticketSearchRef = useRef<HTMLInputElement>(null)
+  const anchorRef = useRef<HTMLSpanElement>(null)
   const pendingRef = useRef(false)
   const refreshRef = useRef<AbortController>()
   const path = workspacePath ?? cwd
@@ -415,14 +416,16 @@ export function ClaudeHeroRepositoryControls({
     if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
     let scheduled = false
     let current: HTMLElement | undefined
+    // Captured once: after unmount the detached anchor would widen to the document.
+    const scope = conversationScope(anchorRef.current)
     const reconcile = (): void => {
       scheduled = false
-      const target = locateClaudePresetSeat()
+      const target = locateClaudePresetSeat(scope)
       if (target === undefined) {
         // A hero showing another preset is a switch, not a re-render: retire.
-        if (retainsClaudeHeroPortal(current) && !showsOtherPresetSeat()) return
+        if (retainsClaudeHeroPortal(current) && !showsOtherPresetSeat(scope)) return
         current = undefined
-        removeClaudeHeroPortals()
+        removeClaudeHeroPortals(scope)
         setPortal(undefined)
         return
       }
@@ -439,7 +442,7 @@ export function ClaudeHeroRepositoryControls({
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['data-phase'] })
     return () => {
       observer.disconnect()
-      removeClaudeHeroPortals()
+      removeClaudeHeroPortals(scope)
     }
   }, [sessionId])
 
@@ -499,7 +502,7 @@ export function ClaudeHeroRepositoryControls({
       // A ticket seeds the draft itself, so an empty composer may still submit.
       if (pendingRef.current || (input.draft.trim().length === 0 && tickets.length === 0)) return
       const intercept = event instanceof KeyboardEvent ? shouldInterceptKey(event) : shouldInterceptClick(event)
-      if (!intercept) return
+      if (!intercept || !withinPortalHero(portal, event.target)) return
       event.preventDefault()
       event.stopPropagation()
       pendingRef.current = true
@@ -620,8 +623,10 @@ export function ClaudeHeroRepositoryControls({
     setError(undefined)
     setTicketMenuOpen(false)
   }
-  if (portal === undefined || path === undefined) return null
-  return createPortal((
+  // Marks which conversation this dock belongs to; see conversationScope.
+  const anchor = <span ref={anchorRef} hidden data-dsh-claude-hero-anchor="" />
+  if (portal === undefined || path === undefined) return anchor
+  return <>{anchor}{createPortal((
     <span style={styles.heroRepositoryControls}>
       {branches === undefined ? (
         <span style={styles.heroRepositoryStatus}>{error ?? t('repositoryBranchesLoading')}</span>
@@ -742,5 +747,5 @@ export function ClaudeHeroRepositoryControls({
         />
       )}
     </span>
-  ), portal)
+  ), portal)}</>
 }
